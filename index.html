@@ -6,7 +6,8 @@
 <title>캐러셀 공장</title>
 <meta name="theme-color" content="#1B1D20">
 <meta name="apple-mobile-web-app-capable" content="yes">
-<meta name="apple-mobile-web-app-status-bar-style" content="black-translucent">
+<!-- black-translucent이면 화면이 상태바(시계·배터리) «밑으로» 들어간다. black은 그 자리를 비워둔다 -->
+<meta name="apple-mobile-web-app-status-bar-style" content="black">
 <meta name="apple-mobile-web-app-title" content="캐러셀">
 <link rel="manifest" href="manifest.json">
 <link rel="apple-touch-icon" href="icon-180.png">
@@ -77,6 +78,13 @@
   #cv{display:block; width:100%; border-radius:16px; cursor:grab;
     box-shadow:0 30px 70px -26px rgba(0,0,0,.95), 0 0 0 1px rgba(255,255,255,.08)}
   #cv.grab{cursor:grabbing}
+  /* 사진칸 안에서 실제로 돌아가는 영상 (보기 전용 — 손가락은 캔버스가 받는다) */
+  .pvclip{position:absolute; overflow:hidden; pointer-events:none; display:none}
+  .pvclip.on{display:block}
+  .pvclip video{position:absolute; display:block; object-fit:cover}
+  .pvtag{position:absolute; left:9px; top:9px; font-size:10.5px; font-weight:600; color:#EDEFF2;
+    background:rgba(18,22,26,.66); -webkit-backdrop-filter:blur(8px); backdrop-filter:blur(8px);
+    padding:4px 9px; border-radius:99px; white-space:nowrap}
   .hotzone{position:absolute; border-radius:3px; box-shadow:0 0 0 0 rgba(126,200,245,0); pointer-events:none; transition:box-shadow .22s}
   .cvwrap.editing .hotzone{box-shadow:0 0 0 2px var(--j2), 0 0 26px -4px var(--j2)}
   .hint{margin-top:12px; font-size:11.5px; color:var(--mute); text-align:center; line-height:1.8}
@@ -121,6 +129,9 @@
     transition:transform .3s cubic-bezier(.2,.8,.2,1)}
   .sheet.on .sheet-in{transform:translateX(-50%) translateY(0)}
   .sheet .grab{width:38px; height:4px; border-radius:99px; background:rgba(255,255,255,.28); margin:2px auto 12px}
+  /* 뒤로가기(닫기)는 항상 오른쪽 위 */
+  .sheet-x{position:absolute; right:14px; top:12px; z-index:2;
+    width:34px; height:34px; padding:0; border-radius:50%; font-size:14px; line-height:1}
   .sheet-body{overflow-y:auto; overscroll-behavior:contain; padding-bottom:6px}
   .psave{margin-top:10px}
   .psave figure{margin:0 0 14px}
@@ -221,7 +232,10 @@
 
   @media (max-width:860px){
     body{overflow:auto}
-    .wrap{flex-direction:column; overflow:visible; height:auto; padding:10px; gap:10px}
+    /* ⚠️ padding을 통째로 덮어쓰면 위쪽 안전 여백(노치·상태바)이 지워진다 — 반드시 같이 넣을 것 */
+    .wrap{flex-direction:column; overflow:visible; height:auto; gap:10px;
+      padding:calc(20px + env(safe-area-inset-top)) calc(10px + env(safe-area-inset-right))
+              calc(10px + env(safe-area-inset-bottom)) calc(10px + env(safe-area-inset-left))}
     .rail{width:auto; flex:0 0 auto; flex-direction:row}
     .rail-h{display:none}
     .rail-list{flex-direction:row; padding:10px}
@@ -229,6 +243,13 @@
     .rail-b{border-top:0; border-left:1px solid var(--line); justify-content:center}
     .form{width:auto; flex:0 0 auto}
     .stage{overflow:visible}
+  }
+
+  /* 폰: 위쪽은 무조건 넉넉히 — 시계·배터리 줄에 「＋ 새 장」이 걸리지 않게.
+     ⚠️ 위 860 규칙보다 «뒤»에 있어야 이긴다 */
+  @media (max-width:700px){
+    .wrap{ padding-top:max(48px, calc(22px + env(safe-area-inset-top))) }
+    .rail-b{ padding-top:12px }
   }
 </style>
 </head>
@@ -254,6 +275,7 @@
     <div class="cvwrap" id="cvwrap">
       <canvas id="cv" width="1080" height="1350"></canvas>
       <div class="hotzone" id="hotzone"></div>
+      <div class="pvclip" id="pvclip"><video id="pv" playsinline muted loop preload="auto"></video><span class="pvtag">🎬 재생 중 — 내보내면 이 칸이 뚫립니다</span></div>
       <div class="edits" id="edits"></div>
     </div>
     <div class="hint">
@@ -278,7 +300,7 @@
   <button class="sm" id="b-fit">원위치</button>
   <div class="dsep"></div>
   <button id="b-sheet2">⚙<span class="t"> 공통</span></button>
-  <button class="pri" id="b-sheet3">⬇<span class="t"> 내보내기</span></button>
+  <button class="pri" id="b-sheet3">📥<span class="t"> 저장</span></button>
   <div class="dbr"></div>
 </div>
 
@@ -286,9 +308,10 @@
 <div class="sheet" id="sheet">
   <div class="sheet-in glass">
     <div class="grab"></div>
+    <button class="sheet-x" id="b-close" aria-label="닫기">✕</button>
     <div class="tabs">
       <button class="on" data-pane="p2">공통</button>
-      <button data-pane="p3">내보내기</button>
+      <button data-pane="p3">저장</button>
     </div>
     <div class="sheet-body">
 
@@ -339,22 +362,19 @@
     <!-- 내보내기 -->
     <div class="pane" id="p3">
       <div class="sec">
-        <h3>📱 폰에서 저장 — 꾹 눌러 「사진에 추가」</h3>
-        <div class="btns"><button class="sm pri" id="b-phone">이미지 만들기</button></div>
-        <p class="tiny" style="margin-top:8px">
-          아이폰은 내려받으면 「파일」로 가서 인스타에 바로 못 올립니다.<br>
-          아래에 뜬 그림을 <b style="color:var(--j3)">꾹 눌러 「사진에 추가」</b> 하세요.
-        </p>
-        <div id="phonesave" class="psave"></div>
+        <h3>저장하기</h3>
+        <div class="btns">
+          <button class="pri" id="b-save-all">📥 전부 저장</button>
+          <button id="b-save-one">이 장만</button>
+        </div>
+        <p class="tiny" id="save-how" style="margin-top:8px"></p>
       </div>
       <div class="divi"></div>
       <div class="sec">
-        <h3>컴퓨터에서 내려받기</h3>
-        <div class="btns">
-          <button class="sm" id="b-png2">이 장 PNG</button>
-          <button class="sm pri" id="b-all2">전체 PNG 일괄</button>
-        </div>
-        <p class="tiny" style="margin-top:8px">1080×1350 PNG로 저장됩니다. 인스타 → 게시물 → 여러 항목 선택 → 순서대로 올리면 끝.</p>
+        <h3>안 되면 — 꾹 눌러 「사진에 추가」</h3>
+        <div class="btns"><button class="sm" id="b-phone">그림으로 펼치기</button></div>
+        <p class="tiny" style="margin-top:8px">저장이 막히는 폰이 있습니다. 그럴 땐 여기 뜬 그림을 <b style="color:var(--j3)">꾹 눌러 「사진에 추가」</b> 하세요.</p>
+        <div id="phonesave" class="psave"></div>
       </div>
       <div class="divi"></div>
       <div class="sec">
@@ -752,7 +772,7 @@ let railT;
 function render(){
   if (_editing) return;
   drawWith(ctx, S.slides[S.cur], S.cur, S.slides.length, {preview:true});
-  syncHotzone(); syncEdits();
+  syncHotzone(); syncEdits(); syncVideo();
   clearTimeout(railT); railT = setTimeout(renderRail, 220);   // 발열 방지: 목록은 늦게 따라옴
   save();
 }
@@ -779,6 +799,33 @@ function renderRail(){
     g.setTransform(1,0,0,1,0,0);
   });
 }
+/* 넣은 영상을 사진칸 «안에서» 그대로 재생 — 크기·위치를 눈으로 보며 맞추라고 */
+function syncVideo(){
+  const sl = S.slides[S.cur], clip = $('pvclip'), v = $('pv');
+  const url = (sl.kind==='video' && sl.vkey) ? vidURL.get(sl.vkey) : null;
+  const k = cv.clientWidth / W;
+  if (!url || !k){ clip.classList.remove('on'); if (!v.paused) v.pause(); return; }
+
+  if (v.dataset.url !== String(sl.vkey)){ v.dataset.url = String(sl.vkey); v.src = url; }
+  const r = photoRect(sl);
+  clip.style.cssText = `left:${r.bx*k}px; top:${r.by*k}px; width:${r.bw*k}px; height:${r.bh*k}px`;
+  clip.classList.add('on');
+
+  // 캔버스에 사진을 앉히는 계산과 «똑같이» 맞춘다
+  const nw = v.videoWidth || 16, nh = v.videoHeight || 9;
+  const base = Math.max(r.bw/nw, r.bh/nh), s = base * sl.zoom;
+  const dw = nw*s, dh = nh*s;
+  const mx = Math.max(0,(dw-r.bw)/2), my = Math.max(0,(dh-r.bh)/2);
+  const ox = Math.max(-mx, Math.min(mx, sl.ox)), oy = Math.max(-my, Math.min(my, sl.oy));
+  v.style.cssText = `left:${((r.bw-dw)/2 + ox)*k}px; top:${((r.bh-dh)/2 + oy)*k}px; width:${dw*k}px; height:${dh*k}px`;
+  if (v.paused && !document.hidden) v.play().catch(()=>{});
+}
+// 화면을 안 보고 있으면 세운다 (발열)
+document.addEventListener('visibilitychange', ()=>{
+  const v = $('pv');
+  if (document.hidden) v.pause(); else if ($('pvclip').classList.contains('on')) v.play().catch(()=>{});
+});
+
 function syncHotzone(){
   const r = photoRect(S.slides[S.cur]);
   const k = cv.clientWidth / W;
@@ -824,6 +871,11 @@ $('boxs').addEventListener('input', e=>{ S.slides[S.cur].box = +e.target.value; 
 /* 시트 · 탭 */
 function openSheet(pane){
   fillForm();   // 미리보기에서 직접 고친 값이 시트에도 보이도록
+  // 이 기기가 어디에 저장하는지 미리 알려준다
+  const probe = [new File([new Blob(['x'],{type:'image/png'})], 'a.png', {type:'image/png'})];
+  $('save-how').innerHTML = canPutInPhotos(probe)
+    ? '누르면 <b style="color:var(--j3)">공유창</b>이 뜹니다 → <b>「이미지 저장」</b>을 고르면 <b>사진첩</b>에 바로 들어갑니다.'
+    : '누르면 <b style="color:var(--j3)">다운로드 폴더</b>에 바로 저장됩니다. 1080×1350 PNG.';
   document.querySelectorAll('.tabs button').forEach(x=>x.classList.toggle('on', x.dataset.pane===pane));
   document.querySelectorAll('.pane').forEach(x=>x.classList.toggle('on', x.id===pane));
   $('sheet').classList.add('on');
@@ -831,7 +883,9 @@ function openSheet(pane){
 document.querySelectorAll('.tabs button').forEach(b=> b.onclick = ()=> openSheet(b.dataset.pane));
 $('b-sheet2').onclick = ()=> openSheet('p2');
 $('b-sheet3').onclick = ()=> openSheet('p3');
-$('sheet').addEventListener('click', e=>{ if (e.target === $('sheet')) $('sheet').classList.remove('on'); });
+const closeSheet = ()=> $('sheet').classList.remove('on');
+$('b-close').onclick = closeSheet;
+$('sheet').addEventListener('click', e=>{ if (e.target === $('sheet')) closeSheet(); });
 document.addEventListener('keydown', e=>{ if (e.key==='Escape' && !_editing) $('sheet').classList.remove('on'); });
 
 /* ─────────── 장 관리 ─────────── */
@@ -1033,28 +1087,47 @@ cv.addEventListener('dblclick', e=>{
   const sl = S.slides[S.cur]; sl.zoom=1; sl.ox=0; sl.oy=0; fillZoom(); render();
 });
 
-/* ─────────── 내보내기 ─────────── */
-function exportOne(i, frameOnly){
-  const c = document.createElement('canvas'); c.width=W; c.height=H;
-  drawWith(c.getContext('2d'), S.slides[i], i, S.slides.length, {frameOnly});
-  return new Promise(res => c.toBlob(b=>{
-    const a = document.createElement('a');
-    a.href = URL.createObjectURL(b);
-    a.download = `carousel_${String(i+1).padStart(2,'0')}${frameOnly?'_frame':''}.png`;
-    a.click(); setTimeout(()=>{ URL.revokeObjectURL(a.href); res(); }, 120);
-  }, 'image/png'));
-}
+/* ─────────── 저장 ─────────── */
 const isVid = sl => sl.kind === 'video';
-async function exportAll(){
-  toast('내보내는 중…');
-  let v = 0;
-  for (let i=0;i<S.slides.length;i++){
-    const vid = isVid(S.slides[i]); if (vid) v++;
-    await exportOne(i, vid);            // 영상 장은 «사진칸이 투명한 틀»로
-    await new Promise(r=>setTimeout(r,220));
-  }
-  toast(v ? `${S.slides.length}장 저장 — 그중 ${v}개는 🎬투명 틀입니다` : `${S.slides.length}장 저장 완료`);
+function pngFile(i){
+  const sl = S.slides[i], vid = isVid(sl);
+  const c = document.createElement('canvas'); c.width=W; c.height=H;
+  drawWith(c.getContext('2d'), sl, i, S.slides.length, {frameOnly:vid});
+  const name = `carousel_${String(i+1).padStart(2,'0')}${vid?'_frame':''}.png`;
+  return new Promise(res => c.toBlob(b=> res(new File([b], name, {type:'image/png'})), 'image/png'));
 }
+/* 폰이 사진첩에 바로 넣을 수 있는지 */
+function canPutInPhotos(files){
+  try{ return !!(navigator.canShare && navigator.share && navigator.canShare({files})); }catch(e){ return false; }
+}
+function download(file){
+  const a = document.createElement('a');
+  a.href = URL.createObjectURL(file); a.download = file.name;
+  a.click(); setTimeout(()=> URL.revokeObjectURL(a.href), 200);
+}
+async function saveFiles(files){
+  if (!files.length) return;
+  const v = files.filter(f=> f.name.includes('_frame')).length;
+  // 폰: 공유창 → 「이미지 저장」이면 사진첩에 바로 들어간다 (웹은 사진첩에 직접 못 쓴다)
+  if (canPutInPhotos(files)){
+    try{
+      await navigator.share({ files, title:'캐러셀' });
+      toast(v ? `저장했습니다 — 그중 ${v}개는 🎬투명 틀` : '사진첩에 저장했습니다');
+      return;
+    }catch(e){
+      if (e && e.name === 'AbortError') return;      // 사장님이 취소한 것
+    }
+  }
+  for (const f of files){ download(f); await new Promise(r=>setTimeout(r,180)); }
+  toast(v ? `내려받았습니다 — 그중 ${v}개는 🎬투명 틀` : `${files.length}장 내려받았습니다`);
+}
+$('b-save-all').onclick = async ()=>{
+  toast('만드는 중…');
+  const files = [];
+  for (let i=0;i<S.slides.length;i++) files.push(await pngFile(i));
+  await saveFiles(files);
+};
+$('b-save-one').onclick = async ()=> saveFiles([await pngFile(S.cur)]);
 /* 폰: 그림으로 띄워두면 꾹 눌러 「사진에 추가」 */
 $('b-phone').onclick = ()=>{
   const box = $('phonesave'); box.innerHTML = '';
@@ -1071,9 +1144,13 @@ $('b-phone').onclick = ()=>{
   toast(`${S.slides.length}장 준비됐어요 — 꾹 누르세요`);
 };
 
-$('b-png2').onclick = ()=> exportOne(S.cur,false).then(()=>toast('저장 완료'));
-$('b-all2').onclick = exportAll;
-$('b-frame').onclick = ()=> exportOne(S.cur,true).then(()=>toast('영상용 틀 저장 — 캡컷에 얹으세요'));
+$('b-frame').onclick = async ()=>{
+  const sl = S.slides[S.cur];
+  const c = document.createElement('canvas'); c.width=W; c.height=H;
+  drawWith(c.getContext('2d'), sl, S.cur, S.slides.length, {frameOnly:true});
+  const f = await new Promise(res=> c.toBlob(b=> res(new File([b], `carousel_${String(S.cur+1).padStart(2,'0')}_frame.png`, {type:'image/png'})), 'image/png'));
+  saveFiles([f]);
+};
 $('b-kind').onclick = ()=>{
   const sl = S.slides[S.cur];
   sl.kind = (sl.kind==='video') ? 'photo' : 'video';
@@ -1128,7 +1205,8 @@ $('jsonfile').onchange = e=>{
   }catch(e){}
   fillForm(); render(); renderRail();
   if (fresh && window.SAMPLE_PHOTO) setTimeout(()=> toast('견본이 채워져 있어요 — 사진과 글자를 바꿔 쓰세요'), 400);
-  window.addEventListener('resize', ()=>{ syncHotzone(); syncEdits(); });
+  window.addEventListener('resize', ()=>{ syncHotzone(); syncEdits(); syncVideo(); });
+  $('pv').addEventListener('loadedmetadata', syncVideo);   // 크기를 알게 되면 다시 맞춘다
 
   /* 홈 화면 앱 — «배포했는데 안 바뀐다»를 막는 배선 */
   if ('serviceWorker' in navigator && location.protocol.startsWith('http')){

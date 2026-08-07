@@ -1,7 +1,7 @@
 /* 캐러셀 공장 — 서비스 워커
    ⚠️ 배포할 때마다 CACHE_NAME 숫자를 반드시 올릴 것.
    바이트가 똑같으면 브라우저가 «안 바뀐 걸로» 보고 옛 화면을 계속 띄운다. */
-const CACHE_NAME = 'carousel-factory-v1';
+const CACHE_NAME = 'carousel-factory-v2';
 const ASSETS = [
   './',
   './index.html',
