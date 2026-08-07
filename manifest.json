@@ -1,0 +1,17 @@
+{
+  "name": "캐러셀 공장",
+  "short_name": "캐러셀",
+  "description": "인스타 캐러셀(1080×1350) 시안을 찍어내는 도구",
+  "start_url": "./index.html",
+  "scope": "./",
+  "display": "standalone",
+  "orientation": "portrait",
+  "background_color": "#1B1D20",
+  "theme_color": "#1B1D20",
+  "lang": "ko",
+  "icons": [
+    { "src": "icon-192.png", "sizes": "192x192", "type": "image/png", "purpose": "any" },
+    { "src": "icon-512.png", "sizes": "512x512", "type": "image/png", "purpose": "any" },
+    { "src": "icon-512.png", "sizes": "512x512", "type": "image/png", "purpose": "maskable" }
+  ]
+}
