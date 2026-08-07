@@ -405,9 +405,23 @@ const LAY = {
 };
 const lay = sl => LAY[sl.layout === 'B' ? 'B' : 'A'];
 
+/* 비어 있는 칸에 «뭘 넣으면 좋은지» 옅게 비쳐 보이는 글자.
+   화면에서만 보이고 내보낼 때는 안 나온다. */
+const PH = {
+  topC:'브랜드 · 시리즈 이름',
+  topR:'이 장의 분류',
+  kr:'제목',
+  en:'ENGLISH SUBTITLE',
+  about:'무엇을 알려주는 장인지 두 줄로',
+  aboutLabel:'ABOUT.',
+  footL:'매장 이름 · 브랜드',
+  footC:'@인스타 아이디'
+};
+
 /* ─────────── 상태 ─────────── */
 const DEF_G = {
-  topC:'HAIR DESIGN GUIDE', footL:'WHENCE HAIR', footC:'DESIGN BY WHENCE_TAEIN', aboutLabel:'ABOUT.',
+  // 하단 왼쪽 = 매장·브랜드 / 하단 가운데 = 인스타 아이디 (둘 다 사장님 것을 넣어야 하므로 비워둠 — 화면엔 옅은 안내가 뜬다)
+  topC:'HAIR DESIGN GUIDE', footL:'', footC:'', aboutLabel:'ABOUT.',
   bg:'#F4F1EC', ink:'#1A1714', body:'#5C5751', line:'#D5CFC6',
   font:'Pretendard', op:88, tsize:100, ls:12
 };
@@ -512,16 +526,24 @@ function drawWith(o, sl, idx, total, opt){
   o.fillStyle = g.bg; o.fillRect(0,0,W,H);
 
   const hid = opt.hide;   // 지금 고치고 있는 글자는 캔버스에 안 그림(겹침 방지)
+  const ghost = hexA(g.body, .30);
+  // 비었으면 «뭘 넣으면 좋은지»를 옅게 — 내보낼 때(opt.preview 없음)는 그리지 않음
+  const t2 = (key, val, x, y, o)=>{
+    if (hid === key) return;
+    if (val) return txt(val, x, y, o);
+    if (!opt.preview || !PH[key]) return;
+    txt(PH[key], x, y, Object.assign({}, o, {color:ghost, weight:Math.min(o.weight||400, 500)}));
+  };
 
   // 상단 바
   if (hid!=='topL') txt(sl.topL || String(idx+1).padStart(2,'0'), L.M, L.topY, {size:26, weight:700});
-  if (hid!=='topC') txt(g.topC, W/2, L.topY, {size:27, weight:800, ls:2, align:'center'});
-  if (hid!=='topR') txt(sl.topR, W-L.M, L.topY, {size:24, weight:700, align:'right'});
+  t2('topC', g.topC, W/2, L.topY, {size:27, weight:800, ls:2, align:'center'});
+  t2('topR', sl.topR, W-L.M, L.topY, {size:24, weight:700, align:'right'});
 
   // 제목
   const ts = titleSizeOf(sl);
-  if (hid!=='kr') txt(sl.kr, W/2, A.titleY, {size:ts, weight:900, ls:Math.round(ts*0.14), align:'center'});
-  if (hid!=='en') txt(sl.en, W/2, A.subY, {size:Math.round(A.subSize*T), weight:400, ls:LS, align:'center', color:bodyC});
+  t2('kr', sl.kr, W/2, A.titleY, {size:ts, weight:900, ls:Math.round(ts*0.14), align:'center'});
+  t2('en', sl.en, W/2, A.subY, {size:Math.round(A.subSize*T), weight:400, ls:LS, align:'center', color:bodyC});
 
   // 사진칸
   const r = photoRect(sl);
@@ -539,19 +561,22 @@ function drawWith(o, sl, idx, total, opt){
 
   // 설명 — 비어 있으면 아예 안 그림
   const aLines = (sl.about||'').split('\n').map(s=>s.trim()).filter(Boolean).slice(0,2);
-  if (aLines.length || hid==='about' || hid==='aboutLabel'){
+  if (aLines.length || hid==='about' || hid==='aboutLabel' || opt.preview){
     const ab = ABOUT;
-    if (hid!=='aboutLabel') txt(g.aboutLabel, ab.labelX, ab.y1, {size:26, weight:800});
-    o.strokeStyle = g.line; o.lineWidth = 1.4;
-    o.beginPath(); o.moveTo(ab.barX+.5, ab.barT); o.lineTo(ab.barX+.5, ab.barB); o.stroke();
-    if (hid!=='about') aLines.forEach((t,i)=> txt(t, ab.textX, i===0?ab.y1:ab.y2, {size:24, weight:400, color:bodyC}));
+    t2('aboutLabel', g.aboutLabel, ab.labelX, ab.y1, {size:26, weight:800});
+    if (aLines.length || hid==='about' || hid==='aboutLabel'){
+      o.strokeStyle = g.line; o.lineWidth = 1.4;
+      o.beginPath(); o.moveTo(ab.barX+.5, ab.barT); o.lineTo(ab.barX+.5, ab.barB); o.stroke();
+    }
+    if (aLines.length) { if (hid!=='about') aLines.forEach((t,i)=> txt(t, ab.textX, i===0?ab.y1:ab.y2, {size:24, weight:400, color:bodyC})); }
+    else t2('about', '', ab.textX, ab.y1, {size:24, weight:400});
   }
 
-  // 푸터
+  // 푸터 — 브랜드 자리
   o.strokeStyle = g.line; o.lineWidth = 1.4;
   o.beginPath(); o.moveTo(L.M, L.footHrY+.5); o.lineTo(W-L.M, L.footHrY+.5); o.stroke();
-  if (hid!=='footL') txt(g.footL, L.M, L.footY, {size:21, weight:500, ls:1, color:footC});
-  if (hid!=='footC') txt(g.footC, W/2, L.footY, {size:21, weight:500, ls:1, align:'center', color:footC});
+  t2('footL', g.footL, L.M, L.footY, {size:21, weight:500, ls:1, color:footC});
+  t2('footC', g.footC, W/2, L.footY, {size:21, weight:500, ls:1, align:'center', color:footC});
   txt(`${idx+1} / ${total}`, W-L.M, L.footY, {size:21, weight:500, align:'right', color:footC});
 
   restore();
@@ -600,7 +625,7 @@ function fieldBoxes(){
   const bx = (key, scope, x, y, w, size, o={}) => ({
     key, scope, x, y: y - size*0.82, w, h: size*1.24, size,
     weight:o.weight||400, align:o.align||'left', ls:o.ls||0,
-    color:o.color||g.ink, lines:o.lines||1, ph:o.ph||''
+    color:o.color||g.ink, lines:o.lines||1, ph:PH[key]||''
   });
   return [
     bx('topL','slide', L.M-8, L.topY, 150, 26, {weight:700, ph:'01'}),
@@ -670,11 +695,11 @@ function beginEdit(b, d, k){
   d.appendChild(el);
   el.focus(); el.select && el.select();
 
-  drawWith(ctx, S.slides[S.cur], S.cur, S.slides.length, {hide:b.key});   // 겹침 방지
+  drawWith(ctx, S.slides[S.cur], S.cur, S.slides.length, {hide:b.key, preview:true});   // 겹침 방지
 
   const live = ()=>{
     setVal(b, el.value);
-    drawWith(ctx, S.slides[S.cur], S.cur, S.slides.length, {hide:b.key});
+    drawWith(ctx, S.slides[S.cur], S.cur, S.slides.length, {hide:b.key, preview:true});
   };
   const done = (cancel)=>{
     _editing = null; _endEdit = null;
@@ -695,7 +720,7 @@ function beginEdit(b, d, k){
 let railT;
 function render(){
   if (_editing) return;
-  drawWith(ctx, S.slides[S.cur], S.cur, S.slides.length, {});
+  drawWith(ctx, S.slides[S.cur], S.cur, S.slides.length, {preview:true});
   syncHotzone(); syncEdits();
   clearTimeout(railT); railT = setTimeout(renderRail, 220);   // 발열 방지: 목록은 늦게 따라옴
   save();
@@ -718,7 +743,7 @@ function renderRail(){
     d.querySelector('.n').textContent = i+1;
     const g = d.querySelector('canvas').getContext('2d');
     g.setTransform(TW/W, 0, 0, TH/H, 0, 0);          // 큰 캔버스 만들지 않고 바로 축소해 그림
-    drawWith(g, S.slides[i], i, S.slides.length, {});
+    drawWith(g, S.slides[i], i, S.slides.length, {preview:true});
     g.setTransform(1,0,0,1,0,0);
   });
 }
@@ -978,6 +1003,9 @@ $('jsonfile').onchange = e=>{
     getImg(window.SAMPLE_PHOTO);
   }
   S.g = {...DEF_G, ...S.g};
+  // 참고했던 계정의 브랜드가 남아 있으면 비운다 (남의 이름이 찍히지 않게)
+  ['DESIGN BY WHENCE_TAEIN','예약은 프로필 링크 ↗'].includes(S.g.footC) && (S.g.footC = '');
+  if (S.g.footL === 'WHENCE HAIR') S.g.footL = '';
   S.cur = Math.min(S.cur||0, S.slides.length-1);
   try{
     await document.fonts.ready;
