@@ -65,6 +65,9 @@
   .thumb .n{position:absolute; left:5px; top:5px; font-size:10px; font-weight:700; color:#0E1114;
     background:rgba(255,255,255,.82); padding:1px 6px; border-radius:99px}
   .thumb.on .n{background:var(--j2)}
+  .thumb .v{position:absolute; right:5px; top:5px; font-size:10px; display:none;
+    background:rgba(0,0,0,.62); padding:1px 5px; border-radius:99px}
+  .thumb.vid .v{display:block}
   .rail-b{padding:10px 12px; border-top:1px solid var(--line); display:flex; flex-direction:column; gap:7px}
 
   /* ── 가운데: 미리보기 ── */
@@ -124,6 +127,14 @@
   .psave img{display:block; width:100%; border-radius:12px; border:1px solid var(--line);
     box-shadow:0 10px 30px -18px #000; -webkit-touch-callout:default}
   .psave figcaption{font-size:11px; color:var(--mute); margin-top:5px; text-align:center}
+  .psave figcaption b{color:var(--j3)}
+  /* 투명 틀은 «구멍»이 보이게 체크무늬를 깔아준다 */
+  .psave figure.vid img{
+    background-color:#5A5F66;
+    background-image:linear-gradient(45deg,#4A4E54 25%,transparent 25%,transparent 75%,#4A4E54 75%),
+                     linear-gradient(45deg,#4A4E54 25%,transparent 25%,transparent 75%,#4A4E54 75%);
+    background-size:22px 22px; background-position:0 0,11px 11px;
+  }
   .form{display:none}
   .sec{margin-bottom:16px}
   .sec>h3{margin:0 0 9px; font-size:10.5px; letter-spacing:.12em; color:var(--mute); font-weight:700; text-transform:uppercase}
@@ -259,8 +270,9 @@
     <button data-lay="B">상세형<em>사진이 크게</em></button>
   </div>
   <div class="dsep"></div>
-  <button id="b-photo">🖼<span class="t"> 사진 바꾸기</span></button>
-  <input type="file" id="file" accept="image/*" multiple hidden>
+  <button id="b-photo">🖼<span class="t"> 사진 · 영상</span></button>
+  <input type="file" id="file" accept="image/*,video/*" multiple hidden>
+  <div class="sld" id="vidwrap" style="display:none"><span>🎬 장면 <b id="vtv"></b></span><input type="range" id="vtime" min="0" max="1000" value="150"></div>
   <div class="sld"><span>확대 <b id="zv"></b></span><input type="range" id="zoom" min="100" max="400" value="100"></div>
   <div class="sld"><span>사진칸</span><input type="range" id="boxs" min="560" max="900" value="780"></div>
   <button class="sm" id="b-fit">원위치</button>
@@ -346,13 +358,18 @@
       </div>
       <div class="divi"></div>
       <div class="sec">
-        <h3>영상 슬라이드용 틀</h3>
+        <h3>🎬 영상 장</h3>
         <div class="btns">
-          <button class="sm" id="b-frame">🎬 사진칸 투명 틀 PNG</button>
+          <button class="sm" id="b-kind">🖼 사진 장 → 영상 장으로</button>
+          <button class="sm" id="b-frame">이 장 투명 틀 PNG</button>
         </div>
         <p class="tiny" style="margin-top:8px">
-          영상 장은 여기서 <b>틀만</b> 뽑아 캡컷에 올리세요.<br>
-          캡컷 → 4:5 → 영상 배치 → 이 PNG를 오버레이로 맨 위에 얹으면 사진 장과 여백·글자가 완전히 똑같아집니다.
+          영상은 앱이 직접 만들지 않습니다. 브라우저로 뽑으면 인스타가 안 받는 형식이 나오고 화질도 깎여서요.<br><br>
+          <b style="color:var(--j3)">대신 이렇게 하시면 똑같이 됩니다</b><br>
+          ① 여기서 <b>사진칸이 뻥 뚫린 틀 PNG</b>를 받는다<br>
+          ② 캡컷에서 <b>4:5</b>로 영상을 깐다<br>
+          ③ 이 PNG를 맨 위 오버레이로 얹는다<br>
+          ④ <b>구멍에 꽉 차게</b> 영상 크기만 맞춘다 — 끝
         </p>
       </div>
       <div class="divi"></div>
@@ -433,9 +450,14 @@ function newSlide(layout){
     about: layout==='B'
       ? '어깨선 위 ~ 2cm, 쇄골과 어깨 사이\n손질이 쉬워 직장인에게 잘 맞습니다'
       : '어깨선 위아래로 떨어지는 길이감으로\n가볍고 세련된 무드를 연출할 수 있는 스타일',
+    kind:'photo',      // 'photo' | 'video' — 영상 장은 내보낼 때 «사진칸이 투명한 틀»로 나간다
+    vkey:null, vpos:0.15,
     src:null, zoom:1, ox:0, oy:0, box:(layout==='B'?LAY.B.box:LAY.A.box)
   };
 }
+/* 영상 원본은 이 판에서만 들고 있는다(새로고침하면 사라짐 — 뽑아둔 장면은 남는다) */
+const vidURL = new Map();
+let _vkeySeq = 1;
 let S = { g:{...DEF_G}, slides:[newSlide('A'), newSlide('B')], cur:0 };   // 첫 화면부터 채워진 모습
 const imgCache = new Map();   // src -> Image
 
@@ -556,7 +578,16 @@ function drawWith(o, sl, idx, total, opt){
     o.drawImage(im, f.dx, f.dy, f.dw, f.dh); o.restore();
   } else {
     o.fillStyle = hexA(g.line,.45); o.fillRect(r.bx,r.by,r.bw,r.bh);
-    txt('사진을 끌어놓으세요', W/2, r.by + r.bh/2 + 9, {size:26, weight:400, align:'center', color:footC});
+    txt('사진 · 영상을 끌어놓으세요', W/2, r.by + r.bh/2 + 9, {size:26, weight:400, align:'center', color:footC});
+  }
+  // 영상 장 표시 — 화면에서만 보이고 내보낼 땐 안 나옴
+  if (opt.preview && !opt.frameOnly && sl.kind === 'video'){
+    const tag = '🎬 영상 장 — 내보내면 이 칸이 뚫립니다';
+    o.font = fontStack(600, 21); setLS(0);
+    const tw = o.measureText(tag).width + 26;
+    o.fillStyle = 'rgba(18,22,26,.72)';
+    o.beginPath(); o.roundRect(r.bx+14, r.by+14, tw, 38, 19); o.fill();
+    txt(tag, r.bx+27, r.by+40, {size:21, weight:600, color:'#EDEFF2'});
   }
 
   // 설명 — 비어 있으면 아예 안 그림
@@ -733,13 +764,14 @@ function renderRail(){
     S.slides.forEach((_,i)=>{
       const d = document.createElement('div');
       d.className='thumb'; d.dataset.i=i;
-      d.innerHTML = `<canvas width="${TW}" height="${TH}"></canvas><span class="n">${i+1}</span>`;
+      d.innerHTML = `<canvas width="${TW}" height="${TH}"></canvas><span class="n">${i+1}</span><span class="v">🎬</span>`;
       d.onclick = ()=>{ S.cur=i; fillForm(); render(); renderRail(); };
       rail.appendChild(d);
     });
   }
   [...rail.children].forEach((d,i)=>{
     d.classList.toggle('on', i===S.cur);
+    d.classList.toggle('vid', S.slides[i].kind === 'video');
     d.querySelector('.n').textContent = i+1;
     const g = d.querySelector('canvas').getContext('2d');
     g.setTransform(TW/W, 0, 0, TH/H, 0, 0);          // 큰 캔버스 만들지 않고 바로 축소해 그림
@@ -766,6 +798,12 @@ function fillForm(){
   $('g-font').value=S.g.font; $('g-tsize').value=S.g.tsize; $('g-ls').value=S.g.ls;
   const isB = (sl.layout === 'B');
   document.querySelectorAll('#segLay button').forEach(b=> b.classList.toggle('on', (b.dataset.lay==='B')===isB));
+  // 「장면 고르기」는 이 판에서 영상을 넣은 장에서만
+  const live = sl.vkey && vidURL.get(sl.vkey) && sl.vdur > 0;   // 길이를 아는 영상만 장면을 고를 수 있다
+  $('vidwrap').style.display = live ? '' : 'none';
+  if (live){ $('vtime').value = Math.round((sl.vpos||0.15)*1000); $('vtv').textContent = Math.round((sl.vpos||0.15)*100)+'%'; }
+  const vb = $('b-kind');
+  if (vb) vb.textContent = (sl.kind==='video') ? '🎬 영상 장 → 사진 장으로' : '🖼 사진 장 → 영상 장으로';
 }
 $('segLay').addEventListener('click', e=>{
   const b = e.target.closest('button'); if (!b) return;
@@ -829,22 +867,85 @@ function readShrunk(file){
     fr.onerror = rej; fr.readAsDataURL(file);
   });
 }
-/* 여러 장이면 지금 장을 틀로 삼아 뒤에 자동 생성 */
+/* 영상에서 «한 장면»을 꺼낸다 (pos = 0~1) */
+function grabFrame(url, pos){
+  return new Promise((res, rej)=>{
+    const v = document.createElement('video');
+    v.preload = 'auto'; v.muted = true; v.playsInline = true;
+    let fired = false, timer = 0;
+    const shoot = ()=>{
+      if (fired) return;
+      if (!v.videoWidth) return;                      // 아직 크기를 모름 — 다음 신호를 기다린다
+      fired = true; clearTimeout(timer);
+      const max = 1600, sc = Math.min(1, max/Math.max(v.videoWidth, v.videoHeight));
+      const c = document.createElement('canvas');
+      c.width = Math.round(v.videoWidth*sc); c.height = Math.round(v.videoHeight*sc);
+      c.getContext('2d').drawImage(v, 0, 0, c.width, c.height);
+      const dur = isFinite(v.duration) && v.duration>0 ? v.duration : 0;
+      res({ src:c.toDataURL('image/jpeg', 0.88), dur });
+    };
+    v.onloadeddata = ()=>{
+      const d = v.duration;
+      // ⚠️ 길이를 못 읽는 영상(웹에서 녹화된 webm 등)이 있다. Infinity면 그냥 지금 화면을 찍는다.
+      if (!isFinite(d) || d <= 0) return shoot();
+      const t = Math.min(Math.max(0, d*(pos ?? 0.15)), Math.max(0, d - 0.05));
+      if (Math.abs(v.currentTime - t) < 0.02) shoot(); else v.currentTime = t;
+    };
+    v.onseeked = shoot;
+    v.onerror = ()=>{ if (!fired){ fired = true; clearTimeout(timer); rej(new Error('영상을 읽지 못했습니다')); } };
+    timer = setTimeout(()=>{                          // 어떤 신호도 안 오면 5초 뒤 있는 그대로 찍는다
+      if (fired) return;
+      if (v.videoWidth) shoot();
+      else { fired = true; rej(new Error('영상을 읽지 못했습니다')); }
+    }, 5000);
+    v.src = url;
+  });
+}
+
+/* 여러 개면 지금 장을 틀로 삼아 뒤에 자동 생성 — 사진·영상 둘 다 받는다 */
 async function loadFiles(list){
-  const files = [...(list||[])].filter(f=>f.type.startsWith('image/'));
+  const files = [...(list||[])].filter(f=> f.type.startsWith('image/') || f.type.startsWith('video/'));
   if (!files.length) return;
   const tpl = JSON.parse(JSON.stringify(S.slides[S.cur]));
+  let vids = 0, noFrame = 0;
   for (let i=0;i<files.length;i++){
-    let src; try{ src = await readShrunk(files[i]); }catch(e){ continue; }
+    const f = files[i], vid = f.type.startsWith('video/');
+    let src = null, vkey = null, vdur = 0;
+    if (vid){
+      vids++;
+      const url = URL.createObjectURL(f);
+      vkey = _vkeySeq++; vidURL.set(vkey, url);
+      // 장면을 못 뽑아도 «영상 장»으로는 만든다 — 틀 PNG는 그래도 필요하니까
+      try{ const r = await grabFrame(url, 0.15); src = r.src; vdur = r.dur; }
+      catch(e){ noFrame++; }
+    } else {
+      try{ src = await readShrunk(f); }catch(e){ continue; }
+    }
     let sl;
     if (i===0) sl = S.slides[S.cur];
     else { sl = JSON.parse(JSON.stringify(tpl)); S.slides.splice(++S.cur, 0, sl); }
-    sl.src = src; sl.zoom = 1; sl.ox = 0; sl.oy = 0;
-    getImg(src);
+    sl.kind = vid ? 'video' : 'photo';
+    sl.vkey = vkey; sl.vpos = 0.15; sl.vdur = vdur;
+    if (src){ sl.src = src; sl.zoom = 1; sl.ox = 0; sl.oy = 0; getImg(src); }
   }
   $('rail').innerHTML = ''; fillForm(); render(); renderRail();
-  toast(files.length>1 ? `${files.length}장 만들었습니다 — 글자만 바꾸세요` : '사진칸 위에서 끌어 맞추세요');
+  if (noFrame) toast('🎬 영상 장으로 만들었어요 — 장면은 못 읽었지만 틀 PNG는 나옵니다');
+  else if (vids) toast(`🎬 영상 장 ${vids}개 — 내보내면 «투명 틀»로 나갑니다`);
+  else toast(files.length>1 ? `${files.length}장 만들었습니다 — 글자만 바꾸세요` : '사진칸 위에서 끌어 맞추세요');
 }
+
+/* 영상 장면 고르기 */
+$('vtime').addEventListener('input', async e=>{
+  const sl = S.slides[S.cur];
+  const url = sl.vkey && vidURL.get(sl.vkey);
+  if (!url) return;
+  const pos = +e.target.value/1000;
+  sl.vpos = pos; $('vtv').textContent = Math.round(pos*100)+'%';
+  clearTimeout($('vtime')._t);
+  $('vtime')._t = setTimeout(async ()=>{
+    try{ const r = await grabFrame(url, pos); sl.src = r.src; getImg(r.src); render(); renderRail(); }catch(err){}
+  }, 90);
+});
 $('b-photo').onclick = ()=> $('file').click();
 $('file').onchange = e=>{ loadFiles(e.target.files); e.target.value=''; };
 ['dragenter','dragover'].forEach(t=> document.addEventListener(t, e=>{ e.preventDefault(); }));
@@ -943,20 +1044,28 @@ function exportOne(i, frameOnly){
     a.click(); setTimeout(()=>{ URL.revokeObjectURL(a.href); res(); }, 120);
   }, 'image/png'));
 }
+const isVid = sl => sl.kind === 'video';
 async function exportAll(){
   toast('내보내는 중…');
-  for (let i=0;i<S.slides.length;i++){ await exportOne(i,false); await new Promise(r=>setTimeout(r,220)); }
-  toast(`${S.slides.length}장 저장 완료`);
+  let v = 0;
+  for (let i=0;i<S.slides.length;i++){
+    const vid = isVid(S.slides[i]); if (vid) v++;
+    await exportOne(i, vid);            // 영상 장은 «사진칸이 투명한 틀»로
+    await new Promise(r=>setTimeout(r,220));
+  }
+  toast(v ? `${S.slides.length}장 저장 — 그중 ${v}개는 🎬투명 틀입니다` : `${S.slides.length}장 저장 완료`);
 }
 /* 폰: 그림으로 띄워두면 꾹 눌러 「사진에 추가」 */
 $('b-phone').onclick = ()=>{
   const box = $('phonesave'); box.innerHTML = '';
   S.slides.forEach((sl,i)=>{
+    const vid = isVid(sl);
     const c = document.createElement('canvas'); c.width=W; c.height=H;
-    drawWith(c.getContext('2d'), sl, i, S.slides.length, {});
+    drawWith(c.getContext('2d'), sl, i, S.slides.length, {frameOnly:vid});
     const fig = document.createElement('figure');
+    if (vid) fig.className = 'vid';
     fig.innerHTML = `<img src="${c.toDataURL('image/png')}" alt="${i+1}번째 장">
-      <figcaption>${i+1} / ${S.slides.length} — 꾹 눌러 「사진에 추가」</figcaption>`;
+      <figcaption>${i+1} / ${S.slides.length} — ${vid ? '🎬 영상용 <b>투명 틀</b> · 캡컷에서 영상 위에 얹으세요' : '꾹 눌러 「사진에 추가」'}</figcaption>`;
     box.appendChild(fig);
   });
   toast(`${S.slides.length}장 준비됐어요 — 꾹 누르세요`);
@@ -965,6 +1074,12 @@ $('b-phone').onclick = ()=>{
 $('b-png2').onclick = ()=> exportOne(S.cur,false).then(()=>toast('저장 완료'));
 $('b-all2').onclick = exportAll;
 $('b-frame').onclick = ()=> exportOne(S.cur,true).then(()=>toast('영상용 틀 저장 — 캡컷에 얹으세요'));
+$('b-kind').onclick = ()=>{
+  const sl = S.slides[S.cur];
+  sl.kind = (sl.kind==='video') ? 'photo' : 'video';
+  fillForm(); render(); renderRail();
+  toast(sl.kind==='video' ? '🎬 영상 장 — 내보내면 투명 틀로 나갑니다' : '🖼 사진 장으로 되돌렸습니다');
+};
 
 /* 기본 톤 */
 $('b-reset').onclick = ()=>{
